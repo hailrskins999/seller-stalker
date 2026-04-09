@@ -1,1201 +1,411 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { Plus, Trash2, RefreshCw, Bell, Settings, ExternalLink, Search, X, AlertTriangle } from 'lucide-react';
 
-// Toast Component
-const Toast = ({ message, type, onClose }) => {
-  useEffect(() => {
-    const timer = setTimeout(onClose, 4000);
-    return () => clearTimeout(timer);
-  }, [onClose]);
+// ===================
+// SUPABASE CONFIG
+// ===================
+const SUPABASE_URL = 'https://pyshlfqyjmcbqofnbeyu.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_IvDKdqp1eIaEdibdL_87SQ__GBiaKOJ';
 
-  const bgColor = type === 'success' ? 'bg-emerald-600' : type === 'error' ? 'bg-red-600' : 'bg-amber-600';
-  
-  return (
-    <div className={`${bgColor} text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-3 animate-slide-in`}>
-      <span className="text-sm font-medium">{message}</span>
-      <button onClick={onClose} className="ml-2 opacity-70 hover:opacity-100">✕</button>
-    </div>
-  );
+const supabase = {
+  async get(id) {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/seller_data?id=eq.${id}&select=data`, {
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+      });
+      const rows = await res.json();
+      return rows.length > 0 ? rows[0].data : null;
+    } catch (e) { console.error('Supabase get error:', e); return null; }
+  },
+  async set(id, data) {
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/seller_data`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates'
+        },
+        body: JSON.stringify({ id, data, updated_at: new Date().toISOString() })
+      });
+      return true;
+    } catch (e) { console.error('Supabase set error:', e); return false; }
+  }
 };
 
-// Modal Component
-const Modal = ({ isOpen, onClose, title, children, wide }) => {
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleEscape = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-  
-  return (
-    <div 
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
-      <div 
-        className={`bg-zinc-900 border border-zinc-700 rounded-xl w-full ${wide ? 'max-w-4xl' : 'max-w-lg'} shadow-2xl flex flex-col max-h-[90vh]`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between p-5 border-b border-zinc-700 flex-shrink-0">
-          <h2 className="text-lg font-bold text-white tracking-tight">{title}</h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-700 transition-colors">✕</button>
-        </div>
-        <div className="p-5 overflow-y-auto flex-1">{children}</div>
-        <div className="p-4 border-t border-zinc-700 flex-shrink-0">
-          <button onClick={onClose} className="w-full py-2 bg-zinc-700 text-white font-medium rounded-lg hover:bg-zinc-600 transition-colors">
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Confirm Dialog
-const ConfirmDialog = ({ isOpen, onClose, onConfirm, message }) => {
-  if (!isOpen) return null;
-  
-  return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-sm shadow-2xl p-6">
-        <p className="text-zinc-200 mb-6">{message}</p>
-        <div className="flex gap-3 justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors">
-            Cancel
-          </button>
-          <button onClick={onConfirm} className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors">
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Stats Bar
-const StatsBar = ({ sellers, products, newToday }) => (
-  <div className="grid grid-cols-3 gap-4 mb-6">
-    {[
-      { label: 'Sellers Tracked', value: sellers, color: 'text-cyan-400' },
-      { label: 'Products Found', value: products, color: 'text-emerald-400' },
-      { label: 'New Today', value: newToday, color: 'text-amber-400' },
-    ].map(({ label, value, color }) => (
-      <div key={label} className="bg-zinc-800/50 border border-zinc-700/50 rounded-lg p-4">
-        <div className={`text-2xl font-bold ${color} font-mono`}>{value}</div>
-        <div className="text-xs text-zinc-500 uppercase tracking-wider mt-1">{label}</div>
+const ToastContainer = ({ toasts, removeToast }) => (
+  <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+    {toasts.map(toast => (
+      <div key={toast.id} className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-xl border animate-slide-in ${toast.type === 'success' ? 'bg-green-900 border-green-700 text-green-100' : toast.type === 'error' ? 'bg-red-900 border-red-700 text-red-100' : toast.type === 'warning' ? 'bg-yellow-900 border-yellow-700 text-yellow-100' : 'bg-gray-800 border-gray-600 text-gray-100'}`}>
+        <span className="text-sm font-medium">{toast.message}</span>
+        <button onClick={() => removeToast(toast.id)} className="ml-2 opacity-60 hover:opacity-100"><X className="w-4 h-4" /></button>
       </div>
     ))}
   </div>
 );
 
-// Product Card (like your screenshot - with green left border, image, price hunt button)
-const ProductCard = ({ product, onPriceHunt, isHunting }) => {
-  const amazonUrl = `https://amazon.com/dp/${product.asin}`;
-  const imageUrl = product.image || (product.imageId ? `https://images-na.ssl-images-amazon.com/images/I/${product.imageId}._SL150_.jpg` : null);
-  
+const Modal = ({ isOpen, onClose, title, children }) => {
+  if (!isOpen) return null;
   return (
-    <div className="bg-zinc-800/30 border-l-4 border-l-emerald-500 border border-zinc-700/50 rounded-r-xl p-4 flex gap-4">
-      <div className="flex-1 min-w-0">
-        <a 
-          href={amazonUrl} 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="text-blue-400 hover:text-blue-300 font-semibold text-sm leading-tight block mb-3 line-clamp-2"
-        >
-          {product.title || `Product ${product.asin}`}
-        </a>
-        <div className="grid grid-cols-3 gap-4 text-sm mb-3">
-          <div>
-            <div className="text-zinc-500 text-xs">Price</div>
-            <div className="text-white font-mono">{product.price ? `$${product.price.toFixed(2)}` : '$-0.01'}</div>
-          </div>
-          <div>
-            <div className="text-zinc-500 text-xs">Rating</div>
-            <div className="text-white">{product.rating ? `${product.rating} ★` : 'No rating'}</div>
-          </div>
-          <div>
-            <div className="text-zinc-500 text-xs">ASIN</div>
-            <div className="text-cyan-400 font-mono text-xs">{product.asin}</div>
-          </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b border-gray-700">
+          <h2 className="text-xl font-semibold text-white">{title}</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-700 text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
         </div>
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="text-xs text-zinc-500 flex items-center gap-2">
-            <span>Seller: {product.sellerName} ({product.sellerId}) • {product.detectedAt ? new Date(product.detectedAt).toLocaleString() : 'Just now'}</span>
-            {product.discordNotifiedAt && (
-              <span className="text-purple-400" title={`Sent to Discord: ${new Date(product.discordNotifiedAt).toLocaleString()}`}>
-                📨
-              </span>
-            )}
-          </div>
-          <button
-            onClick={() => onPriceHunt(product)}
-            disabled={isHunting}
-            className="px-3 py-1.5 text-xs bg-amber-600/20 text-amber-400 border border-amber-600/30 rounded-lg hover:bg-amber-600/30 disabled:opacity-50 transition-all flex items-center gap-1.5 flex-shrink-0"
-            title="Shows demo data - use Claude in Chrome for real results"
-          >
-            🔍 {isHunting ? 'Checking...' : 'Check Competitors'}
-          </button>
-        </div>
+        <div className="p-5">{children}</div>
       </div>
-      {imageUrl && (
-        <div className="w-20 h-20 flex-shrink-0">
-          <img 
-            src={imageUrl}
-            alt={product.title || product.asin}
-            className="w-full h-full object-contain rounded-lg bg-white"
-            onError={(e) => { e.target.style.display = 'none'; }}
-          />
-        </div>
-      )}
     </div>
   );
 };
 
-// Seller Card
-const SellerCard = ({ seller, onDelete, onCheck, isChecking, onViewProducts }) => {
-  const productCount = seller.products?.length || 0;
-  const newCount = seller.products?.filter(p => p.isNew).length || 0;
-  const lastChecked = seller.lastChecked ? new Date(seller.lastChecked).toLocaleString() : 'Never';
-  
+const ConfirmDialog = ({ isOpen, onClose, onConfirm, title, message }) => {
+  if (!isOpen) return null;
   return (
-    <div className="bg-zinc-800/30 border border-zinc-700/50 rounded-xl p-5 hover:border-zinc-600 transition-all">
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <h3 className="font-bold text-white text-lg">{seller.name || seller.id}</h3>
-          <code className="text-xs text-zinc-500 font-mono">{seller.id}</code>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full max-w-md p-6">
+        <div className="flex items-center gap-4 mb-4">
+          <div className="p-3 rounded-full bg-red-900/50"><AlertTriangle className="w-6 h-6 text-red-400" /></div>
+          <div><h3 className="text-lg font-semibold text-white">{title}</h3><p className="text-gray-400 text-sm mt-1">{message}</p></div>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => onCheck(seller.id)}
-            disabled={isChecking}
-            className="px-3 py-1.5 text-xs bg-cyan-600/20 text-cyan-400 border border-cyan-600/30 rounded-lg hover:bg-cyan-600/30 disabled:opacity-50 transition-all"
-          >
-            {isChecking ? 'Checking...' : 'Check Now'}
-          </button>
-          <button
-            onClick={() => onDelete(seller.id)}
-            className="px-3 py-1.5 text-xs text-red-400 hover:bg-red-600/20 rounded-lg transition-all"
-          >
-            Delete
-          </button>
+        <div className="flex gap-3 justify-end mt-6">
+          <button onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-200">Cancel</button>
+          <button onClick={() => { onConfirm(); onClose(); }} className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-white">Remove</button>
         </div>
       </div>
-      <div className="flex items-center gap-4 text-sm text-zinc-400">
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
-          {productCount} products
-        </span>
-        {newCount > 0 && (
-          <span className="bg-amber-600/20 text-amber-400 px-2 py-0.5 rounded text-xs">
-            {newCount} NEW
-          </span>
-        )}
-        <span>Last: {lastChecked}</span>
-      </div>
-      {productCount > 0 && (
-        <button
-          onClick={() => onViewProducts(seller)}
-          className="mt-4 w-full py-2 text-sm text-cyan-400 border border-cyan-600/30 rounded-lg hover:bg-cyan-600/10 transition-all"
-        >
-          View All Products →
-        </button>
-      )}
     </div>
   );
 };
 
-// Price Hunt Results Modal
-const PriceHuntResults = ({ isOpen, onClose, results }) => {
-  if (!results) return null;
-  
+const StatsBar = ({ sellers, listings, notifications }) => {
+  const totalProducts = Object.values(listings).reduce((sum, arr) => sum + (arr?.length || 0), 0);
+  const newToday = notifications.filter(n => new Date(n.timestamp) >= new Date(new Date().setHours(0,0,0,0))).length;
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="🔍 Competitor Price Check" wide>
-      <div className="space-y-6">
-        {/* Demo Mode Warning */}
-        <div className="bg-amber-900/30 border border-amber-600/30 rounded-lg p-4 flex items-start gap-3">
-          <span className="text-2xl">⚠️</span>
-          <div>
-            <div className="text-amber-400 font-bold">Demo Mode</div>
-            <div className="text-sm text-amber-200/70">
-              This is simulated data. For real competitor checks, use the <strong>Claude in Chrome extension</strong> to search Walmart, Target, eBay, and brand sites.
-            </div>
-          </div>
-        </div>
-
-        {/* Product Info */}
-        <div className="bg-zinc-800/50 rounded-lg p-4 flex gap-4">
-          {results.product?.image && (
-            <img src={results.product.image} alt="" className="w-16 h-16 object-contain bg-white rounded-lg" />
-          )}
-          <div>
-            <h3 className="font-bold text-white mb-1">{results.product?.title}</h3>
-            <div className="text-sm text-zinc-400">ASIN: {results.product?.asin}</div>
-            <div className="text-sm text-cyan-400 mt-1">Your Amazon Price: {results.product?.price ? `$${results.product.price.toFixed(2)}` : 'Unknown'}</div>
-          </div>
-        </div>
-
-        {/* Lowest Competitor Alert */}
-        {results.bestDeal && (
-          <div className="bg-red-900/30 border border-red-600/30 rounded-lg p-4">
-            <div className="text-red-400 font-bold text-lg mb-2">⚠️ Lowest Competitor: {results.bestDeal.retailer}</div>
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div>
-                <div className="text-zinc-500">Their Price</div>
-                <div className="text-white font-bold text-xl">${results.bestDeal.price?.toFixed(2)}</div>
-              </div>
-              <div>
-                <div className="text-zinc-500">Per Unit</div>
-                <div className="text-white font-bold">${results.bestDeal.perUnit?.toFixed(2)}</div>
-              </div>
-              <div>
-                <div className="text-zinc-500">Notes</div>
-                <div className="text-white">{results.bestDeal.method}</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Competitor Prices */}
-        {results.retailers && results.retailers.length > 0 && (
-          <div>
-            <h4 className="text-sm text-zinc-400 uppercase tracking-wider mb-3">Competitor Prices</h4>
-            <div className="space-y-2">
-              {results.retailers.map((r, i) => (
-                <div key={i} className={`flex items-center justify-between p-3 rounded-lg ${r.isBest ? 'bg-red-900/20 border border-red-600/30' : 'bg-zinc-800/30'}`}>
-                  <div className="flex items-center gap-3">
-                    {r.isBest && <span className="text-red-400">⚠️</span>}
-                    <span className="text-white font-medium">{r.name}</span>
-                    {r.notes && <span className="text-xs text-zinc-500">{r.notes}</span>}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-white font-mono">${r.price?.toFixed(2)}</div>
-                    <div className="text-xs text-zinc-500">${r.perUnit?.toFixed(2)}/unit</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Competitor Coupon Codes */}
-        {results.workingCodes && results.workingCodes.length > 0 && (
-          <div>
-            <h4 className="text-sm text-zinc-400 uppercase tracking-wider mb-3">Competitor Coupon Codes</h4>
-            <div className="space-y-2">
-              {results.workingCodes.map((code, i) => (
-                <div key={i} className="flex items-center justify-between p-3 bg-zinc-800/30 rounded-lg">
-                  <code className="text-amber-400 font-mono">{code.code}</code>
-                  <span className="text-zinc-400 text-sm">{code.discount}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Failed Codes */}
-        {results.failedCodes && results.failedCodes.length > 0 && (
-          <div>
-            <h4 className="text-sm text-zinc-400 uppercase tracking-wider mb-3">Codes That Don't Work</h4>
-            <div className="space-y-2">
-              {results.failedCodes.map((code, i) => (
-                <div key={i} className="flex items-center justify-between p-3 bg-zinc-800/30 rounded-lg opacity-60">
-                  <code className="text-zinc-500 font-mono line-through">{code.code}</code>
-                  <span className="text-red-400 text-sm">{code.error}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Copy Prompt for Claude in Chrome */}
-        <div className="bg-cyan-900/20 border border-cyan-600/30 rounded-lg p-4">
-          <h4 className="text-sm text-cyan-400 font-bold mb-2">🔌 Run Real Competitor Check</h4>
-          <p className="text-xs text-zinc-400 mb-3">Copy this prompt and paste it into the Claude in Chrome extension:</p>
-          <div className="bg-zinc-900 rounded-lg p-3 text-xs font-mono text-zinc-300 whitespace-pre-wrap">
-{`Competitor price check for: ${results.product?.title || results.product?.asin}
-ASIN: ${results.product?.asin}
-
-I sell this on Amazon. Find competitor prices to see if anyone is undercutting me:
-
-1. Search Walmart.com for this exact product
-2. Search Target.com for this exact product  
-3. Find the official brand website and check their price
-4. Check eBay for third-party sellers
-5. Look for any coupon codes on the brand's official site
-6. Test codes: WELCOME10, WELCOME15, SAVE10, SAVE20, FIRST10
-
-Report back:
-- Each competitor's price and price-per-unit
-- Any working coupon codes
-- Flag if any competitor is priced LOWER than my Amazon listing
-- Note free shipping thresholds`}
-          </div>
-          <button
-            onClick={() => {
-              const prompt = `Competitor price check for: ${results.product?.title || results.product?.asin}\nASIN: ${results.product?.asin}\n\nI sell this on Amazon. Find competitor prices to see if anyone is undercutting me:\n\n1. Search Walmart.com for this exact product\n2. Search Target.com for this exact product\n3. Find the official brand website and check their price\n4. Check eBay for third-party sellers\n5. Look for any coupon codes on the brand's official site\n6. Test codes: WELCOME10, WELCOME15, SAVE10, SAVE20, FIRST10\n\nReport back:\n- Each competitor's price and price-per-unit\n- Any working coupon codes\n- Flag if any competitor is priced LOWER than my Amazon listing\n- Note free shipping thresholds`;
-              navigator.clipboard.writeText(prompt);
-            }}
-            className="mt-3 px-4 py-2 bg-cyan-600 text-white text-sm font-bold rounded-lg hover:bg-cyan-500 transition-colors"
-          >
-            📋 Copy Prompt
-          </button>
-        </div>
-      </div>
-    </Modal>
+    <div className="flex items-center gap-6 px-4 py-3 bg-gray-800/50 rounded-lg border border-gray-700/50 mb-6">
+      <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500" /><span className="text-gray-400 text-sm">{sellers.length} Sellers</span></div>
+      <div className="w-px h-4 bg-gray-700" />
+      <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-purple-500" /><span className="text-gray-400 text-sm">{totalProducts} Products</span></div>
+      <div className="w-px h-4 bg-gray-700" />
+      <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-green-500" /><span className="text-gray-400 text-sm">{newToday} New Today</span></div>
+    </div>
   );
 };
 
-// Main App
-export default function AmazonSellerStalker() {
-  // State
+export default function App() {
   const [sellers, setSellers] = useState([]);
-  const [settings, setSettings] = useState({ 
-    keepaKey: '', 
-    discordWebhook: '',
-    autoPriceHunt: false, // Off by default - needs browser automation
-    sendPriceHuntToDiscord: false // Off by default - demo data shouldn't go to Discord
-  });
-  const [toasts, setToasts] = useState([]);
+  const [newSellerId, setNewSellerId] = useState('');
+  const [listings, setListings] = useState({});
+  const [loading, setLoading] = useState({});
+  const [config, setConfig] = useState({ keepaApiKey: '', discordWebhook: '' });
   const [showSettings, setShowSettings] = useState(false);
-  const [showAddSeller, setShowAddSeller] = useState(false);
-  const [showExport, setShowExport] = useState(false);
-  const [showProducts, setShowProducts] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [newSeller, setNewSeller] = useState({ id: '', name: '' });
-  const [isChecking, setIsChecking] = useState(null);
-  const [isHunting, setIsHunting] = useState(null);
-  const [rateLimit, setRateLimit] = useState(null);
-  const [importData, setImportData] = useState('');
-  const [priceHuntResults, setPriceHuntResults] = useState(null);
-  const [showPriceHuntResults, setShowPriceHuntResults] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sentAsins, setSentAsins] = useState(new Set());
+  const [toasts, setToasts] = useState([]);
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, sellerId: null, sellerName: '' });
+  const [tempConfig, setTempConfig] = useState({ keepaApiKey: '', discordWebhook: '' });
+  const [isLoading, setIsLoading] = useState(true);
 
-  // localStorage for persistence
-  // Load from localStorage on mount
-  useEffect(() => {
-    try {
-      const savedSellers = localStorage.getItem('seller_stalker_sellers');
-      const savedSettings = localStorage.getItem('seller_stalker_settings');
-      if (savedSellers) setSellers(JSON.parse(savedSellers));
-      if (savedSettings) setSettings(prev => ({ ...prev, ...JSON.parse(savedSettings) }));
-    } catch (error) {
-      console.error('Failed to load from localStorage:', error);
-    }
-  }, []);
-
-  // Save sellers to localStorage when they change
-  useEffect(() => {
-    try {
-      localStorage.setItem('seller_stalker_sellers', JSON.stringify(sellers));
-    } catch (error) {
-      console.error('Failed to save sellers:', error);
-    }
-  }, [sellers]);
-
-  // Save settings to localStorage when they change
-  useEffect(() => {
-    try {
-      localStorage.setItem('seller_stalker_settings', JSON.stringify(settings));
-    } catch (error) {
-      console.error('Failed to save settings:', error);
-    }
-  }, [settings]);
-
-  // Toast helper
-  const addToast = useCallback((message, type = 'info') => {
-    const id = Date.now();
+  const addToast = (message, type = 'info') => {
+    const id = Date.now() + Math.random();
     setToasts(prev => [...prev, { id, message, type }]);
-  }, []);
-
-  const removeToast = useCallback((id) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  }, []);
-
-  // Fetch product details from Keepa
-  const fetchProductDetails = async (asins) => {
-    if (!settings.keepaKey || asins.length === 0) return {};
-    
-    try {
-      const batchSize = 100;
-      const products = {};
-      
-      for (let i = 0; i < asins.length; i += batchSize) {
-        const batch = asins.slice(i, i + batchSize);
-        const url = `https://api.keepa.com/product?key=${settings.keepaKey}&domain=1&asin=${batch.join(',')}`;
-        const response = await fetch(url);
-        const data = await response.json();
-        
-        if (data.tokensLeft !== undefined) {
-          setRateLimit({ tokens: data.tokensLeft, refillIn: data.refillIn });
-        }
-        
-        if (data.products) {
-          data.products.forEach(p => {
-            products[p.asin] = {
-              title: p.title,
-              imageId: p.imagesCSV?.split(',')[0],
-              image: p.imagesCSV ? `https://images-na.ssl-images-amazon.com/images/I/${p.imagesCSV.split(',')[0]}._SL150_.jpg` : null,
-              price: p.csv?.[0]?.[p.csv[0].length - 1] > 0 ? p.csv[0][p.csv[0].length - 1] / 100 : null,
-              rating: p.csv?.[16]?.[p.csv[16]?.length - 1] ? (p.csv[16][p.csv[16].length - 1] / 10).toFixed(1) : null,
-              brand: p.brand,
-              category: p.categoryTree?.[0]?.name
-            };
-          });
-        }
-        
-        if (i + batchSize < asins.length) {
-          await new Promise(r => setTimeout(r, 2000));
-        }
-      }
-      
-      return products;
-    } catch (error) {
-      console.error('Error fetching product details:', error);
-      return {};
-    }
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   };
 
-  // Send rich Discord notification with product embeds (like your screenshot)
-  // Returns the ASINs that were successfully sent
-  const sendRichDiscordNotification = async (sellerName, sellerId, products) => {
-    if (!settings.discordWebhook || products.length === 0) return [];
-    
-    // Filter out products that have already been sent to Discord
-    const unnotifiedProducts = products.filter(p => !p.discordNotifiedAt);
-    if (unnotifiedProducts.length === 0) {
-      console.log('All products already notified to Discord, skipping');
-      return [];
-    }
-    
-    try {
-      // Send individual embeds for each product (Discord limit: 10 embeds per message)
-      const batches = [];
-      for (let i = 0; i < unnotifiedProducts.length; i += 10) {
-        batches.push(unnotifiedProducts.slice(i, i + 10));
-      }
-      
-      const sentAsins = [];
-      
-      for (const batch of batches) {
-        const embeds = batch.map(p => ({
-          title: p.title || `Product ${p.asin}`,
-          url: `https://amazon.com/dp/${p.asin}`,
-          color: 0x00ff88, // Green color like your screenshot
-          thumbnail: p.image ? { url: p.image } : undefined,
-          fields: [
-            { name: 'Price', value: p.price ? `$${p.price.toFixed(2)}` : '$-0.01', inline: true },
-            { name: 'Rating', value: p.rating ? `${p.rating} ★` : 'No rating', inline: true },
-            { name: 'ASIN', value: `\`${p.asin}\``, inline: true },
-          ],
-          footer: { text: `Seller: ${sellerName} (${sellerId})` },
-          timestamp: new Date().toISOString()
-        }));
+  useEffect(() => { loadFromCloud(); }, []);
 
-        await fetch(settings.discordWebhook, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ embeds })
-        });
-        
-        // Track which ASINs were sent
-        batch.forEach(p => sentAsins.push(p.asin));
-        
-        if (batches.length > 1) {
-          await new Promise(r => setTimeout(r, 1000));
-        }
+  const loadFromCloud = async () => {
+    setIsLoading(true);
+    try {
+      const data = await supabase.get('main');
+      if (data) {
+        if (data.sellers) setSellers(data.sellers);
+        if (data.listings) setListings(data.listings);
+        if (data.config) { setConfig(data.config); setTempConfig(data.config); }
+        if (data.notifications) setNotifications(data.notifications);
+        if (data.sentAsins) setSentAsins(new Set(data.sentAsins));
+        addToast('☁️ Data loaded from cloud', 'success');
+      } else {
+        addToast('☁️ Connected - no existing data', 'info');
       }
-      
-      addToast(`Discord: Sent ${unnotifiedProducts.length} product cards`, 'success');
-      return sentAsins;
-    } catch (error) {
-      addToast('Failed to send Discord notification', 'error');
-      return [];
+    } catch (e) {
+      console.error('Load error:', e);
+      addToast('⚠️ Could not connect to cloud', 'error');
     }
+    setIsLoading(false);
   };
 
-  // Send Price Hunt results to Discord
-  const sendPriceHuntToDiscord = async (results) => {
-    if (!settings.discordWebhook || !results) return;
-    
-    try {
-      const product = results.product;
-      const best = results.bestDeal;
-      
-      // Build retailer comparison
-      let retailerText = '';
-      if (results.retailers) {
-        retailerText = results.retailers.map(r => 
-          `${r.isBest ? '⚠️ ' : ''}${r.name}: $${r.price?.toFixed(2)} ($${r.perUnit?.toFixed(2)}/unit)${r.notes ? ` - ${r.notes}` : ''}`
-        ).join('\n');
-      }
-      
-      // Build working codes list
-      let codesText = 'None found';
-      if (results.workingCodes && results.workingCodes.length > 0) {
-        codesText = results.workingCodes.map(c => `\`${c.code}\` - ${c.discount}`).join('\n');
-      }
-
-      // Check if any competitor is cheaper (flag for seller)
-      const lowestCompetitor = results.retailers?.reduce((min, r) => r.price < min.price ? r : min, results.retailers[0]);
-      const alertLevel = lowestCompetitor?.price < (product?.price || 999) ? 0xff0000 : 0xf59e0b; // Red if undercut, amber otherwise
-
-      const embeds = [
-        {
-          title: `🔍 Competitor Check: ${product?.title || product?.asin}`,
-          url: `https://amazon.com/dp/${product?.asin}`,
-          color: alertLevel,
-          thumbnail: product?.image ? { url: product.image } : undefined,
-          fields: [
-            { 
-              name: '📊 Your Amazon Price', 
-              value: product?.price ? `$${product.price.toFixed(2)}` : 'Unknown',
-              inline: true 
-            },
-            { 
-              name: '⚠️ Lowest Competitor', 
-              value: best ? `${best.retailer}: $${best.price?.toFixed(2)}` : 'Not found',
-              inline: true 
-            },
-            { 
-              name: '🏪 All Competitor Prices', 
-              value: retailerText || 'Not checked',
-              inline: false 
-            },
-            { 
-              name: '🎟️ Competitor Coupon Codes', 
-              value: codesText,
-              inline: false 
-            },
-          ],
-          footer: { text: `ASIN: ${product?.asin}` },
-          timestamp: new Date().toISOString()
-        }
-      ];
-
-      await fetch(settings.discordWebhook, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ embeds })
-      });
-      
-      addToast('Discord: Sent competitor price check', 'success');
-    } catch (error) {
-      console.error('Discord price hunt error:', error);
-      addToast('Failed to send price check to Discord', 'error');
-    }
-  };
-
-  // Price Hunt function - the main workflow from Part 2 (now focused on competitor checking)
-  const runPriceHunt = async (product) => {
-    setIsHunting(product.asin);
-    addToast(`🔍 Checking competitors for ${product.title || product.asin}...`, 'info');
-    
-    // In a full implementation with browser automation (Claude in Chrome), this would:
-    // 1. Search Walmart, Target, official brand site
-    // 2. Gather coupon codes from aggregators
-    // 3. Test codes at checkout on BOTH S&S and One-Time options
-    // 4. Test higher number variants (e.g., BRAND30 → BRAND35, BRAND40...)
-    // 5. Compare final prices
-    
-    // Simulated results showing the full workflow output format
-    await new Promise(r => setTimeout(r, 2000));
-    
-    const basePrice = product.price || 29.99;
-    
-    const results = {
-      product: product,
-      bestDeal: {
-        retailer: 'Official Site',
-        price: basePrice * 0.85,
-        perUnit: basePrice * 0.85,
-        method: 'Direct + Free shipping $50+'
-      },
-      ssComparison: null, // Not comparing S&S since we're the Amazon seller
-      retailers: [
-        { name: 'Walmart', price: basePrice * 1.05, perUnit: basePrice * 1.05, isBest: false },
-        { name: 'Target', price: basePrice * 1.08, perUnit: basePrice * 1.08, isBest: false },
-        { name: 'Official Site', price: basePrice * 0.85, perUnit: basePrice * 0.85, isBest: true, notes: 'Free shipping $50+' },
-        { name: 'eBay', price: basePrice * 0.95, perUnit: basePrice * 0.95, isBest: false, notes: 'Third-party seller' },
-      ],
-      workingCodes: [
-        { code: 'WELCOME15', discount: '15% off first order (Official Site)' },
-        { code: 'SAVE10', discount: '10% off (Official Site)' },
-      ],
-      failedCodes: [
-        { code: 'BRAND50', error: 'Invalid code' },
-        { code: 'SAVE20', error: 'Expired' },
-      ]
+  const saveToCloud = async (newSellers, newListings, newNotifications, newConfig, newSentAsins) => {
+    const data = {
+      sellers: newSellers ?? sellers,
+      listings: newListings ?? listings,
+      config: newConfig ?? config,
+      notifications: newNotifications ?? notifications,
+      sentAsins: [...(newSentAsins ?? sentAsins)]
     };
-    
-    setPriceHuntResults(results);
-    setShowPriceHuntResults(true);
-    setIsHunting(null);
-    addToast('🔍 Competitor check complete!', 'success');
-    
-    // Send results to Discord if enabled
-    if (settings.discordWebhook && settings.sendPriceHuntToDiscord) {
-      await sendPriceHuntToDiscord(results);
-    }
-    
-    return results;
+    const success = await supabase.set('main', data);
+    if (!success) addToast('⚠️ Failed to save to cloud', 'error');
   };
 
-  // Add seller
-  const handleAddSeller = () => {
-    if (!newSeller.id.trim()) {
-      addToast('Seller ID is required', 'error');
-      return;
-    }
-    if (sellers.find(s => s.id.toLowerCase() === newSeller.id.toLowerCase())) {
-      addToast('Seller already exists', 'error');
-      return;
-    }
-    setSellers(prev => [...prev, { 
-      id: newSeller.id.trim(), 
-      name: newSeller.name.trim() || newSeller.id.trim(),
-      products: [],
-      lastChecked: null,
-      addedAt: Date.now()
-    }]);
-    setNewSeller({ id: '', name: '' });
-    setShowAddSeller(false);
-    addToast('Seller added successfully', 'success');
+  const saveConfig = async (c) => {
+    setConfig(c);
+    await saveToCloud(null, null, null, c, null);
+    addToast('Settings saved to cloud', 'success');
   };
 
-  // Delete seller
-  const handleDeleteSeller = (id) => {
-    setSellers(prev => prev.filter(s => s.id !== id));
-    setDeleteConfirm(null);
-    addToast('Seller removed', 'success');
+  const addSeller = async () => {
+    if (!newSellerId.trim()) return;
+    if (sellers.some(s => s.id === newSellerId.trim())) { addToast('Already tracking this seller', 'warning'); return; }
+    const seller = { id: newSellerId.trim(), name: null, dateAdded: new Date().toISOString(), lastChecked: null, itemCount: 0 };
+    const updated = [...sellers, seller];
+    setSellers(updated);
+    setNewSellerId('');
+    await saveToCloud(updated, null, null, null, null);
+    addToast('Seller added', 'success');
   };
 
-  // Check seller storefront via Keepa
+  const removeSeller = async (id) => {
+    const updated = sellers.filter(s => s.id !== id);
+    const updatedListings = { ...listings };
+    delete updatedListings[id];
+    setSellers(updated);
+    setListings(updatedListings);
+    await saveToCloud(updated, updatedListings, null, null, null);
+    addToast('Seller removed', 'info');
+  };
+
   const checkSeller = async (sellerId) => {
-    if (!settings.keepaKey) {
-      addToast('Keepa API key required. Check settings.', 'error');
-      setShowSettings(true);
-      return;
-    }
-
-    setIsChecking(sellerId);
-    addToast('Fetching storefront...', 'info');
-
+    if (!config.keepaApiKey) { addToast('Add Keepa API key in Settings', 'warning'); setShowSettings(true); return; }
+    setLoading(prev => ({ ...prev, [sellerId]: true }));
     try {
-      const url = `https://api.keepa.com/seller?key=${settings.keepaKey}&domain=1&seller=${sellerId}&storefront=1`;
-      const response = await fetch(url);
-      const data = await response.json();
-
-      if (data.tokensLeft !== undefined) {
-        setRateLimit({ tokens: data.tokensLeft, refillIn: data.refillIn });
-        if (data.tokensLeft < 5) {
-          addToast(`Rate limited - wait ${Math.ceil(data.refillIn / 1000)}s`, 'error');
-          setIsChecking(null);
-          return;
-        }
+      const res = await fetch(`https://api.keepa.com/seller?key=${config.keepaApiKey}&domain=1&seller=${encodeURIComponent(sellerId)}&storefront=1`);
+      const data = await res.json();
+      if (res.status === 429 || (data.tokensLeft !== undefined && data.tokensLeft <= 0)) {
+        const waitTime = data.refillIn ? Math.ceil(data.refillIn / 1000) : 20;
+        throw new Error(`Rate limited - wait ${waitTime}s`);
       }
-
-      // Flexible seller lookup (handle case mismatches)
-      let sellerInfo = data.sellers?.[sellerId];
-      if (!sellerInfo && data.sellers) {
+      if (data.error) throw new Error(data.error.message || data.error);
+      let info = data.sellers?.[sellerId];
+      if (!info && data.sellers) {
         const keys = Object.keys(data.sellers);
         const matchKey = keys.find(k => k.toLowerCase() === sellerId.toLowerCase());
-        sellerInfo = matchKey ? data.sellers[matchKey] : keys[0] ? data.sellers[keys[0]] : null;
+        info = matchKey ? data.sellers[matchKey] : (keys.length > 0 ? data.sellers[keys[0]] : null);
       }
-
-      if (!sellerInfo) {
-        addToast('Seller not found', 'error');
-        setIsChecking(null);
-        return;
-      }
-
-      const newAsins = sellerInfo.asinList || [];
-      const sellerName = sellerInfo.sellerName || sellerId;
-      
-      const seller = sellers.find(s => s.id.toLowerCase() === sellerId.toLowerCase());
-      const existingAsins = new Set(seller?.products?.map(p => p.asin) || []);
-      const detectedNewAsins = newAsins.filter(asin => !existingAsins.has(asin));
-      
-      // Fetch product details for new ASINs
-      let productDetails = {};
-      if (detectedNewAsins.length > 0) {
-        addToast(`Fetching details for ${detectedNewAsins.length} new products...`, 'info');
-        productDetails = await fetchProductDetails(detectedNewAsins);
-      }
-
-      // Build new products list
-      const newProducts = detectedNewAsins.map(asin => ({
-        asin,
-        isNew: true,
-        detectedAt: Date.now(),
-        sellerId: sellerId,
-        sellerName: sellerName,
-        ...productDetails[asin]
+      if (!info) throw new Error('Seller not found');
+      const name = info.sellerName || `Seller ${sellerId}`;
+      const asins = info.asinList || [];
+      if (!asins.length) throw new Error('No products found');
+      const prodRes = await fetch(`https://api.keepa.com/product?key=${config.keepaApiKey}&domain=1&asin=${asins.slice(0,50).join(',')}`);
+      const prodData = await prodRes.json();
+      const products = (prodData.products || []).map(p => ({
+        asin: p.asin, title: p.title || `Product ${p.asin}`, link: `https://www.amazon.com/dp/${p.asin}`,
+        image: p.imagesCSV ? `https://images-na.ssl-images-amazon.com/images/I/${p.imagesCSV.split(',')[0]}` : null,
+        price: p.csv?.[0]?.length ? p.csv[0][p.csv[0].length-1]/100 : null,
+        rating: p.csv?.[16]?.length ? p.csv[16][p.csv[16].length-1]/10 : null
       }));
-
-      // Update sellers state
-      setSellers(prev => prev.map(s => {
-        if (s.id.toLowerCase() !== sellerId.toLowerCase()) return s;
-        
-        const updatedProducts = [
-          ...newProducts,
-          ...(s.products || []).map(p => ({ ...p, isNew: false }))
-        ];
-
-        return {
-          ...s,
-          name: sellerName,
-          products: updatedProducts,
-          lastChecked: Date.now()
-        };
-      }));
-
-      // Handle notifications AFTER state update (outside the callback)
-      if (detectedNewAsins.length > 0) {
-        addToast(`🚨 ${detectedNewAsins.length} new product(s) detected!`, 'success');
-        
-        // Send rich Discord notification with images
-        if (settings.discordWebhook) {
-          const sentAsins = await sendRichDiscordNotification(sellerName, sellerId, newProducts);
-          // Mark sent products with discordNotifiedAt
-          if (sentAsins.length > 0) {
-            setSellers(prev => prev.map(s => {
-              if (s.id.toLowerCase() !== sellerId.toLowerCase()) return s;
-              return {
-                ...s,
-                products: s.products.map(p => 
-                  sentAsins.includes(p.asin) ? { ...p, discordNotifiedAt: Date.now() } : p
-                )
-              };
-            }));
-          }
-        }
-        
-        // Auto price hunt if enabled
-        if (settings.autoPriceHunt && newProducts.length > 0) {
-          addToast('🔍 Auto-checking competitors...', 'info');
-          setTimeout(() => runPriceHunt(newProducts[0]), 1000);
-        }
-      } else {
-        addToast('No new products found', 'info');
-      }
-
-    } catch (error) {
-      addToast(`Error: ${error.message}`, 'error');
-    }
-
-    setIsChecking(null);
-  };
-
-  // Check all sellers sequentially
-  const checkAllSellers = async () => {
-    if (!settings.keepaKey) {
-      addToast('Keepa API key required. Check settings.', 'error');
-      setShowSettings(true);
-      return;
-    }
-
-    if (sellers.length === 0) {
-      addToast('No sellers to check', 'error');
-      return;
-    }
-
-    setIsChecking('all');
-    addToast(`Checking ${sellers.length} seller(s)...`, 'info');
-
-    for (let i = 0; i < sellers.length; i++) {
-      const seller = sellers[i];
-      addToast(`Checking ${seller.name || seller.id} (${i + 1}/${sellers.length})...`, 'info');
+      const oldList = listings[sellerId] || [];
+      const newProds = products.filter(p => !oldList.some(o => o.asin === p.asin));
+      const neverSent = newProds.filter(p => !sentAsins.has(p.asin));
       
-      try {
-        const url = `https://api.keepa.com/seller?key=${settings.keepaKey}&domain=1&seller=${seller.id}&storefront=1`;
-        const response = await fetch(url);
-        const data = await response.json();
-
-        if (data.tokensLeft !== undefined) {
-          setRateLimit({ tokens: data.tokensLeft, refillIn: data.refillIn });
-          if (data.tokensLeft < 5) {
-            addToast(`Rate limited - stopping. Wait ${Math.ceil(data.refillIn / 1000)}s`, 'error');
-            break;
-          }
+      let updatedSentAsins = sentAsins;
+      let updatedNotifications = notifications;
+      
+      if (neverSent.length && oldList.length) {
+        if (config.discordWebhook) {
+          try {
+            await fetch(config.discordWebhook, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: `🚨 **${neverSent.length} New Listing${neverSent.length > 1 ? 's' : ''} from ${name}!**`,
+                embeds: neverSent.slice(0,10).map(p => ({ title: p.title.slice(0,256), url: p.link, color: 3066993, thumbnail: p.image ? { url: p.image } : undefined, fields: [{ name: "Price", value: p.price ? `$${p.price.toFixed(2)}` : "N/A", inline: true }, { name: "ASIN", value: p.asin, inline: true }] }))
+              })
+            });
+          } catch (e) { console.error('Discord error:', e); }
+          updatedSentAsins = new Set(sentAsins);
+          neverSent.forEach(p => updatedSentAsins.add(p.asin));
+          setSentAsins(updatedSentAsins);
         }
+        const newNotifs = newProds.map(p => ({ id: Date.now()+Math.random(), sellerId, sellerName: name, product: p, timestamp: new Date().toISOString() }));
+        updatedNotifications = [...newNotifs, ...notifications].slice(0,50);
+        setNotifications(updatedNotifications);
+        addToast(`🎉 ${neverSent.length} new products from ${name}!`, 'success');
+      }
 
-        let sellerInfo = data.sellers?.[seller.id];
-        if (!sellerInfo && data.sellers) {
-          const keys = Object.keys(data.sellers);
-          const matchKey = keys.find(k => k.toLowerCase() === seller.id.toLowerCase());
-          sellerInfo = matchKey ? data.sellers[matchKey] : keys[0] ? data.sellers[keys[0]] : null;
-        }
+      const updatedListings = { ...listings, [sellerId]: products };
+      const updatedSellers = sellers.map(s => s.id === sellerId ? { ...s, lastChecked: new Date().toISOString(), itemCount: products.length, name } : s);
+      setListings(updatedListings);
+      setSellers(updatedSellers);
+      await saveToCloud(updatedSellers, updatedListings, updatedNotifications, null, updatedSentAsins);
+      addToast(`Loaded ${products.length} products from ${name}`, 'success');
+    } catch (e) { addToast(`Error: ${e.message}`, 'error'); } finally { setLoading(prev => ({ ...prev, [sellerId]: false })); }
+  };
 
-        if (!sellerInfo) {
-          addToast(`Seller ${seller.name || seller.id} not found`, 'error');
-          continue;
-        }
-
-        const newAsins = sellerInfo.asinList || [];
-        const sellerName = sellerInfo.sellerName || seller.id;
-        const existingAsins = new Set(seller.products?.map(p => p.asin) || []);
-        const detectedNewAsins = newAsins.filter(asin => !existingAsins.has(asin));
-
-        let productDetails = {};
-        if (detectedNewAsins.length > 0) {
-          productDetails = await fetchProductDetails(detectedNewAsins);
-        }
-
-        // Build new products list
-        const newProducts = detectedNewAsins.map(asin => ({
-          asin,
-          isNew: true,
-          detectedAt: Date.now(),
-          sellerId: seller.id,
-          sellerName: sellerName,
-          ...productDetails[asin]
-        }));
-
-        // Update sellers state
-        setSellers(prev => prev.map(s => {
-          if (s.id.toLowerCase() !== seller.id.toLowerCase()) return s;
-
-          const updatedProducts = [
-            ...newProducts,
-            ...(s.products || []).map(p => ({ ...p, isNew: false }))
-          ];
-
-          return {
-            ...s,
-            name: sellerName,
-            products: updatedProducts,
-            lastChecked: Date.now()
-          };
-        }));
-
-        // Handle notifications AFTER state update
-        if (detectedNewAsins.length > 0) {
-          addToast(`🚨 ${detectedNewAsins.length} new product(s) from ${sellerName}!`, 'success');
-          
-          if (settings.discordWebhook) {
-            const sentAsins = await sendRichDiscordNotification(sellerName, seller.id, newProducts);
-            // Mark sent products with discordNotifiedAt
-            if (sentAsins.length > 0) {
-              setSellers(prev => prev.map(s => {
-                if (s.id.toLowerCase() !== seller.id.toLowerCase()) return s;
-                return {
-                  ...s,
-                  products: s.products.map(p => 
-                    sentAsins.includes(p.asin) ? { ...p, discordNotifiedAt: Date.now() } : p
-                  )
-                };
-              }));
-            }
-          }
-        }
-
-        // Delay between sellers to avoid rate limiting
-        if (i < sellers.length - 1) {
-          await new Promise(r => setTimeout(r, 2000));
-        }
-      } catch (error) {
-        addToast(`Error checking ${seller.name || seller.id}: ${error.message}`, 'error');
+  const checkAll = async () => {
+    if (!sellers.length) return;
+    addToast(`Checking ${sellers.length} sellers (20s between each)...`, 'info');
+    for (const s of sellers) {
+      await checkSeller(s.id);
+      if (sellers.indexOf(s) < sellers.length - 1) {
+        await new Promise(r => setTimeout(r, 20000));
       }
     }
-
-    addToast('✅ Finished checking all sellers', 'success');
-    setIsChecking(null);
+    addToast('Finished checking all sellers', 'success');
   };
 
-  // Export data
-  const exportData = () => {
-    const data = { sellers, settings: { ...settings, keepaKey: '***REDACTED***' } };
-    return JSON.stringify(data, null, 2);
-  };
-
-  // Import data
-  const handleImport = () => {
+  const testWebhook = async () => {
+    if (!tempConfig.discordWebhook) { addToast('Add webhook URL first', 'warning'); return; }
     try {
-      const data = JSON.parse(importData);
-      if (data.sellers) setSellers(data.sellers);
-      if (data.settings?.discordWebhook) {
-        setSettings(prev => ({ ...prev, discordWebhook: data.settings.discordWebhook }));
-      }
-      setShowExport(false);
-      setImportData('');
-      addToast('Data imported successfully', 'success');
-    } catch (error) {
-      addToast('Invalid import data', 'error');
-    }
+      await fetch(tempConfig.discordWebhook, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: "🧪 **Test from Seller Stalker**", embeds: [{ title: "Webhook Test", description: "Connection successful! 🎉", color: 5763719 }] })
+      });
+      addToast('Test sent!', 'success');
+    } catch { addToast('Webhook test failed', 'error'); }
   };
 
-  // Calculate stats
-  const totalProducts = sellers.reduce((sum, s) => sum + (s.products?.length || 0), 0);
-  const today = new Date().setHours(0, 0, 0, 0);
-  const newToday = sellers.reduce((sum, s) => 
-    sum + (s.products?.filter(p => p.detectedAt && p.detectedAt >= today).length || 0), 0);
+  const filtered = sellers.filter(s => s.id.toLowerCase().includes(searchTerm.toLowerCase()) || s.name?.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-4xl mb-4">☁️</div>
+          <div className="text-xl">Connecting to cloud...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 p-6" style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
-      {/* Background texture */}
-      <div className="fixed inset-0 opacity-5 pointer-events-none" style={{
-        backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`
-      }} />
-
-      {/* Toast Container */}
-      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
-        {toasts.map(toast => (
-          <Toast key={toast.id} {...toast} onClose={() => removeToast(toast.id)} />
-        ))}
-      </div>
-
-      {/* Header */}
-      <header className="relative mb-8">
-        <div className="flex items-center justify-between flex-wrap gap-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white">
+      <ToastContainer toasts={toasts} removeToast={(id) => setToasts(prev => prev.filter(t => t.id !== id))} />
+      
+      <Modal isOpen={showSettings} onClose={() => { setShowSettings(false); setTempConfig(config); }} title="Settings">
+        <div className="space-y-5">
+          <div className="flex items-center gap-2 text-sm text-green-400 bg-green-900/30 px-3 py-2 rounded-lg">
+            <span>☁️</span> <span>Cloud storage active - data syncs automatically</span>
+          </div>
           <div>
-            <h1 className="text-3xl font-black tracking-tighter text-white flex items-center gap-3">
-              <span className="text-4xl">🕵️</span>
-              SELLER STALKER
-            </h1>
-            <p className="text-zinc-500 text-sm mt-1">Amazon seller monitoring + price hunting <span className="text-emerald-500">● Data auto-saved</span></p>
+            <label className="block text-sm text-gray-400 mb-2">Keepa API Key</label>
+            <input type="password" value={tempConfig.keepaApiKey} onChange={(e) => setTempConfig({ ...tempConfig, keepaApiKey: e.target.value })} className="w-full px-4 py-2.5 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none" placeholder="Enter Keepa API key" />
+            <a href="https://keepa.com/api" target="_blank" className="text-xs text-blue-400 hover:underline">Get your key at keepa.com/api</a>
           </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            {rateLimit && (
-              <div className="text-xs text-zinc-500 bg-zinc-800 px-3 py-1.5 rounded-lg">
-                API Tokens: <span className={rateLimit.tokens < 10 ? 'text-red-400' : 'text-emerald-400'}>{rateLimit.tokens}</span>
-              </div>
-            )}
-            <button
-              onClick={() => setShowExport(true)}
-              className="px-4 py-2 text-sm text-zinc-400 hover:text-white border border-zinc-700 rounded-lg hover:border-zinc-600 transition-all"
-            >
-              Export/Import
-            </button>
-            <button
-              onClick={() => setShowSettings(true)}
-              className="px-4 py-2 text-sm bg-zinc-800 text-white rounded-lg hover:bg-zinc-700 transition-all flex items-center gap-2"
-            >
-              ⚙️ Settings
-            </button>
+          <div>
+            <label className="block text-sm text-gray-400 mb-2">Discord Webhook URL</label>
+            <input type="text" value={tempConfig.discordWebhook} onChange={(e) => setTempConfig({ ...tempConfig, discordWebhook: e.target.value })} className="w-full px-4 py-2.5 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none" placeholder="https://discord.com/api/webhooks/..." />
+            <button onClick={testWebhook} disabled={!tempConfig.discordWebhook} className="mt-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm disabled:opacity-50">🧪 Test Webhook</button>
+          </div>
+          <div className="flex gap-3 pt-4 border-t border-gray-700">
+            <button onClick={() => { saveConfig(tempConfig); setShowSettings(false); }} className="flex-1 px-6 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg font-medium">Save</button>
+            <button onClick={() => { setShowSettings(false); setTempConfig(config); }} className="px-6 py-2.5 bg-gray-700 rounded-lg">Cancel</button>
           </div>
         </div>
-      </header>
-
-      {/* Stats Bar */}
-      <StatsBar sellers={sellers.length} products={totalProducts} newToday={newToday} />
-
-      {/* Add Seller Button */}
-      <div className="mb-6 flex gap-3 flex-wrap">
-        <button
-          onClick={() => setShowAddSeller(true)}
-          className="px-5 py-3 bg-gradient-to-r from-cyan-600 to-cyan-500 text-white font-bold rounded-xl hover:from-cyan-500 hover:to-cyan-400 transition-all shadow-lg shadow-cyan-600/20"
-        >
-          + Add Seller
-        </button>
-        {sellers.length > 0 && (
-          <button
-            onClick={checkAllSellers}
-            disabled={isChecking === 'all'}
-            className="px-5 py-3 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-bold rounded-xl hover:from-emerald-500 hover:to-emerald-400 transition-all shadow-lg shadow-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {isChecking === 'all' ? (
-              <>
-                <span className="animate-spin">⟳</span> Checking...
-              </>
-            ) : (
-              <>🔄 Check All Sellers</>
-            )}
-          </button>
+      </Modal>
+      
+      <ConfirmDialog isOpen={deleteConfirm.isOpen} onClose={() => setDeleteConfirm({ isOpen: false, sellerId: null, sellerName: '' })} onConfirm={() => removeSeller(deleteConfirm.sellerId)} title="Remove Seller" message={`Remove "${deleteConfirm.sellerName}" and all their listings?`} />
+      
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        <header className="mb-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">Seller Stalker Pro</h1>
+              <p className="text-gray-400 mt-2">☁️ Cloud synced • Never lose your data</p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => { setShowSettings(true); setTempConfig(config); }} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg flex items-center gap-2"><Settings className="w-5 h-5" />Settings</button>
+              <button onClick={checkAll} disabled={!sellers.length || Object.values(loading).some(l => l)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center gap-2 disabled:opacity-50"><RefreshCw className={`w-5 h-5 ${Object.values(loading).some(l => l) ? 'animate-spin' : ''}`} />Check All</button>
+            </div>
+          </div>
+          
+          <StatsBar sellers={sellers} listings={listings} notifications={notifications} />
+          
+          <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+            <h2 className="text-xl font-semibold mb-4">Add Seller</h2>
+            <div className="flex gap-3">
+              <input value={newSellerId} onChange={(e) => setNewSellerId(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addSeller()} placeholder="Enter Seller ID (e.g., A2L77EE7U53NWQ)" className="flex-1 px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none" />
+              <button onClick={addSeller} className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center gap-2"><Plus className="w-5 h-5" />Add</button>
+            </div>
+          </div>
+        </header>
+        
+        {notifications.length > 0 && (
+          <div className="mb-8 bg-gradient-to-r from-green-900/50 to-blue-900/50 rounded-lg p-6 border border-green-700/50">
+            <div className="flex items-center gap-2 mb-4"><Bell className="w-6 h-6 text-green-400" /><h2 className="text-xl font-semibold">Recent New Listings</h2></div>
+            <div className="space-y-3">
+              {notifications.slice(0,5).map(n => (
+                <div key={n.id} className="bg-gray-800/50 rounded-lg p-4 flex items-center gap-4">
+                  {n.product.image && <img src={n.product.image} alt="" className="w-16 h-16 object-cover rounded" />}
+                  <div className="flex-1 min-w-0"><p className="font-medium text-green-400">{n.sellerName}</p><p className="text-sm text-gray-300 truncate">{n.product.title}</p></div>
+                  <a href={n.product.link} target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700">View</a>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
-      </div>
-
-      {/* Sellers Grid */}
-      {sellers.length === 0 ? (
-        <div className="text-center py-20 text-zinc-500">
-          <div className="text-6xl mb-4 opacity-30">📦</div>
-          <p>No sellers tracked yet.</p>
-          <p className="text-sm mt-2">Add a seller ID to start monitoring their storefront.</p>
-        </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {sellers.map(seller => (
-            <SellerCard
-              key={seller.id}
-              seller={seller}
-              onDelete={(id) => setDeleteConfirm(id)}
-              onCheck={checkSeller}
-              isChecking={isChecking === seller.id || isChecking === 'all'}
-              onViewProducts={setShowProducts}
-            />
+        
+        {sellers.length > 0 && (
+          <div className="mb-4 relative">
+            <Search className="w-5 h-5 absolute left-3 top-2.5 text-gray-400" />
+            <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search sellers..." className="w-full pl-10 pr-4 py-2 bg-gray-800 rounded-lg border border-gray-700 focus:border-blue-500 focus:outline-none" />
+          </div>
+        )}
+        
+        <div className="space-y-6">
+          {filtered.map(seller => (
+            <div key={seller.id} className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-2xl font-semibold">{seller.name || <span className="text-gray-400">Loading...</span>}</h3>
+                  <p className="text-gray-400 text-sm">ID: {seller.id}</p>
+                  <div className="flex gap-4 mt-2 text-sm text-gray-500">
+                    <span>Added: {new Date(seller.dateAdded).toLocaleDateString()}</span>
+                    {seller.lastChecked && <span>Checked: {new Date(seller.lastChecked).toLocaleString()}</span>}
+                    <span className="text-blue-400">{seller.itemCount} items</span>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => checkSeller(seller.id)} disabled={loading[seller.id]} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center gap-2 disabled:opacity-50">
+                    <RefreshCw className={`w-4 h-4 ${loading[seller.id] ? 'animate-spin' : ''}`} />{loading[seller.id] ? 'Checking...' : 'Check Now'}
+                  </button>
+                  <button onClick={() => setDeleteConfirm({ isOpen: true, sellerId: seller.id, sellerName: seller.name || seller.id })} className="px-4 py-2 bg-red-600/80 hover:bg-red-600 rounded-lg flex items-center gap-2"><Trash2 className="w-4 h-4" />Remove</button>
+                </div>
+              </div>
+              
+              {listings[seller.id]?.length ? (
+                <div>
+                  <h4 className="text-lg font-semibold mb-3">Listings ({listings[seller.id].length})</h4>
+                  <div className="space-y-2">
+                    {listings[seller.id].slice(0,10).map(l => (
+                      <div key={l.asin} className="bg-gray-700 rounded-lg p-3 hover:bg-gray-600 flex items-center gap-4">
+                        {l.image && <img src={l.image} alt="" className="w-20 h-20 object-cover rounded" />}
+                        <div className="flex-1 min-w-0">
+                          <h5 className="font-medium text-sm mb-1 line-clamp-2">{l.title}</h5>
+                          <div className="flex items-center gap-3 text-sm">
+                            <span className="text-green-400 font-semibold">{l.price ? `$${l.price.toFixed(2)}` : 'N/A'}</span>
+                            {l.rating && <span className="text-yellow-400">⭐ {l.rating}</span>}
+                          </div>
+                        </div>
+                        <a href={l.link} target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm flex items-center gap-1">View <ExternalLink className="w-3 h-3" /></a>
+                      </div>
+                    ))}
+                  </div>
+                  {listings[seller.id].length > 10 && <p className="text-gray-400 text-sm mt-3">+ {listings[seller.id].length - 10} more</p>}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">No listings loaded. Click "Check Now"</div>
+              )}
+            </div>
           ))}
         </div>
-      )}
-
-      {/* Settings Modal */}
-      <Modal isOpen={showSettings} onClose={() => setShowSettings(false)} title="Settings">
-        <div className="space-y-5">
-          <div>
-            <label className="block text-sm text-zinc-400 mb-2">Keepa API Key</label>
-            <input
-              type="password"
-              value={settings.keepaKey}
-              onChange={(e) => setSettings(prev => ({ ...prev, keepaKey: e.target.value }))}
-              placeholder="Enter your Keepa API key"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500"
-            />
-            <p className="text-xs text-zinc-500 mt-2">Get your key at <a href="https://keepa.com/#!api" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline">keepa.com/api</a></p>
+        
+        {!sellers.length && (
+          <div className="text-center py-20">
+            <div className="text-6xl mb-4">🔍</div>
+            <h2 className="text-2xl font-semibold mb-2">No Sellers Yet</h2>
+            <p className="text-gray-400">Add a seller ID above to start tracking</p>
           </div>
-          <div>
-            <label className="block text-sm text-zinc-400 mb-2">Discord Webhook URL</label>
-            <input
-              type="text"
-              value={settings.discordWebhook}
-              onChange={(e) => setSettings(prev => ({ ...prev, discordWebhook: e.target.value }))}
-              placeholder="https://discord.com/api/webhooks/..."
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500"
-            />
-            <p className="text-xs text-zinc-500 mt-2">Receive rich product cards with images when new items detected</p>
-          </div>
-          <div className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg">
-            <div>
-              <div className="text-white text-sm font-medium">Auto Competitor Check (Demo)</div>
-              <div className="text-xs text-zinc-500">Show simulated competitor data for new products</div>
-            </div>
-            <button
-              onClick={() => setSettings(prev => ({ ...prev, autoPriceHunt: !prev.autoPriceHunt }))}
-              className={`w-12 h-6 rounded-full transition-colors ${settings.autoPriceHunt ? 'bg-cyan-600' : 'bg-zinc-700'}`}
-            >
-              <div className={`w-5 h-5 bg-white rounded-full transform transition-transform ${settings.autoPriceHunt ? 'translate-x-6' : 'translate-x-0.5'}`} />
-            </button>
-          </div>
-          <div className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg">
-            <div>
-              <div className="text-white text-sm font-medium">Send Competitor Check to Discord</div>
-              <div className="text-xs text-zinc-500">Post competitor prices to Discord (off by default)</div>
-            </div>
-            <button
-              onClick={() => setSettings(prev => ({ ...prev, sendPriceHuntToDiscord: !prev.sendPriceHuntToDiscord }))}
-              className={`w-12 h-6 rounded-full transition-colors ${settings.sendPriceHuntToDiscord ? 'bg-cyan-600' : 'bg-zinc-700'}`}
-            >
-              <div className={`w-5 h-5 bg-white rounded-full transform transition-transform ${settings.sendPriceHuntToDiscord ? 'translate-x-6' : 'translate-x-0.5'}`} />
-            </button>
-          </div>
-          <button
-            onClick={() => { setShowSettings(false); addToast('Settings saved', 'success'); }}
-            className="w-full py-3 bg-cyan-600 text-white font-bold rounded-lg hover:bg-cyan-500 transition-colors"
-          >
-            Save Settings
-          </button>
-          <button
-            onClick={() => {
-              if (confirm('Are you sure? This will delete ALL sellers and settings permanently.')) {
-                localStorage.removeItem('seller_stalker_sellers');
-                localStorage.removeItem('seller_stalker_settings');
-                setSellers([]);
-                setSettings({ keepaKey: '', discordWebhook: '', autoPriceHunt: false, sendPriceHuntToDiscord: false });
-                setShowSettings(false);
-                addToast('All data cleared', 'success');
-              }
-            }}
-            className="w-full py-3 bg-red-600/20 text-red-400 font-bold rounded-lg hover:bg-red-600/30 transition-colors border border-red-600/30"
-          >
-            Clear All Data
-          </button>
-        </div>
-      </Modal>
-
-      {/* Add Seller Modal */}
-      <Modal isOpen={showAddSeller} onClose={() => setShowAddSeller(false)} title="Add Seller">
-        <div className="space-y-5">
-          <div>
-            <label className="block text-sm text-zinc-400 mb-2">Seller ID *</label>
-            <input
-              type="text"
-              value={newSeller.id}
-              onChange={(e) => setNewSeller(prev => ({ ...prev, id: e.target.value }))}
-              placeholder="e.g., A2R2RITDJNW1Q6"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500 font-mono"
-            />
-            <p className="text-xs text-zinc-500 mt-2">Find this in the Amazon seller URL: amazon.com/sp?seller=<strong>SELLER_ID</strong></p>
-          </div>
-          <div>
-            <label className="block text-sm text-zinc-400 mb-2">Display Name (optional)</label>
-            <input
-              type="text"
-              value={newSeller.name}
-              onChange={(e) => setNewSeller(prev => ({ ...prev, name: e.target.value }))}
-              placeholder="e.g., Brand Official Store"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500"
-            />
-          </div>
-          <button
-            onClick={handleAddSeller}
-            className="w-full py-3 bg-cyan-600 text-white font-bold rounded-lg hover:bg-cyan-500 transition-colors"
-          >
-            Add Seller
-          </button>
-        </div>
-      </Modal>
-
-      {/* Products Modal */}
-      <Modal isOpen={!!showProducts} onClose={() => setShowProducts(null)} title={`Products: ${showProducts?.name || ''}`} wide>
-        <div className="space-y-3">
-          {showProducts?.products?.length === 0 ? (
-            <p className="text-zinc-500 text-center py-8">No products tracked yet. Click "Check Now" to fetch storefront.</p>
-          ) : (
-            showProducts?.products?.map(product => (
-              <ProductCard 
-                key={product.asin} 
-                product={{...product, sellerName: showProducts.name, sellerId: showProducts.id}}
-                onPriceHunt={runPriceHunt}
-                isHunting={isHunting === product.asin}
-              />
-            ))
-          )}
-        </div>
-      </Modal>
-
-      {/* Export/Import Modal */}
-      <Modal isOpen={showExport} onClose={() => setShowExport(false)} title="Export / Import Data">
-        <div className="space-y-5">
-          <div>
-            <label className="block text-sm text-zinc-400 mb-2">Export (copy this)</label>
-            <textarea
-              readOnly
-              value={exportData()}
-              className="w-full h-32 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white font-mono text-xs focus:outline-none"
-            />
-          </div>
-          <div className="border-t border-zinc-700 pt-5">
-            <label className="block text-sm text-zinc-400 mb-2">Import (paste here)</label>
-            <textarea
-              value={importData}
-              onChange={(e) => setImportData(e.target.value)}
-              placeholder="Paste exported JSON here..."
-              className="w-full h-32 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
-            />
-            <button
-              onClick={handleImport}
-              disabled={!importData}
-              className="mt-3 w-full py-3 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Import Data
-            </button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Delete Confirmation */}
-      <ConfirmDialog
-        isOpen={!!deleteConfirm}
-        onClose={() => setDeleteConfirm(null)}
-        onConfirm={() => handleDeleteSeller(deleteConfirm)}
-        message="Are you sure you want to remove this seller? All tracked product data will be lost."
-      />
-
-      {/* Price Hunt Results */}
-      <PriceHuntResults 
-        isOpen={showPriceHuntResults} 
-        onClose={() => setShowPriceHuntResults(false)} 
-        results={priceHuntResults}
-      />
+        )}
+      </div>
     </div>
   );
 }
