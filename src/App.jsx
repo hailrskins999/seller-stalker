@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react';
 // SUPABASE CONFIG
 // ===================
 const SUPABASE_URL = 'https://pyshlfqyjmcbqofnbeyu.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_IvDKdqp1eIaEdibdL_87SQ__GBiaKOJ';
-
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5c2hsZnF5am1jYnFvZm5iZXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3MzkyNTgsImV4cCI6MjA5MTMxNTI1OH0.K32COTrmQjHVieiZa4P5w237kxMBmfyIy5prtCTawq0';
 const supabase = {
   async get(id) {
     try {
